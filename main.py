@@ -1,105 +1,75 @@
-
+# main.py
 import torch
-
-with open('data/first_question1.txt', 'r', encoding='utf-8') as f:
-    resume1 = f.read()
-
-with open('data/first_question2.txt', 'r', encoding='utf-8') as f:
-    resume2 = f.read()
-
-with open('data/first_question3.txt', 'r', encoding='utf-8') as f:
-    resume3 = f.read()
-
-
-#
-# print(resume1)
-# print()
-# print(resume2)
-# print()
-# print(resume3)
-
-labels = [0.5, 0.8, 1]
-
-from transformers import BertTokenizer
-
-# Load the BERT tokenizer
-tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
-
-# Tokenize the resumes
-tokenized_resume1 = tokenizer.encode(resume1, add_special_tokens=True)
-tokenized_resume2 = tokenizer.encode(resume2, add_special_tokens=True)
-tokenized_resume3 = tokenizer.encode(resume3, add_special_tokens=True)
-
-tokenized_resumes = [tokenized_resume1, tokenized_resume2, tokenized_resume3]
-# labels = [0.5, 0.8, 1]
-
-
-input_examples = []
-for input_ids, label in zip(tokenized_resumes, labels):
-    attention_mask = [1] * len(input_ids)
-    label = torch.tensor(label)
-    input_example = {
-        'input_ids': input_ids,
-        'attention_mask': attention_mask,
-        'labels': label
-    }
-    input_examples.append(input_example)
-
-# Print the input examples
-for input_example in input_examples:
-    print(input_example)
-
-
-
-
-
+from transformers import BertTokenizer, BertForSequenceClassification, AdamW
 from torch.utils.data import Dataset, DataLoader
-from transformers import BertForSequenceClassification, AdamW
 
-# Create a custom dataset class
+# Load data
+def load_data(file_paths):
+    resumes = []
+    for file_path in file_paths:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            resume = f.read()
+            resumes.append(resume)
+    return resumes
+
+file_paths = ['data/first_question1.txt', 'data/first_question2.txt',
+              'data/first_question3.txt', 'data/first_question6.txt',
+              'data/first_question7.txt', 'data/first_question8.txt',
+              'data/first_question9.txt', 'data/first_question10.txt',
+              'data/first_question11.txt', 'data/first_question12.txt',
+              'data/first_question13.txt', 'data/first_question14.txt',
+              'data/first_question15.txt']
+
+resumes = load_data(file_paths)
+
+# Tokenize data
+tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+tokenized_resumes = []
+for resume in resumes:
+    tokenized_resume = tokenizer.encode_plus(
+        resume,
+        add_special_tokens=True,
+        max_length=512,
+        padding='max_length',
+        truncation=True,
+        return_attention_mask=True,
+        return_tensors='pt'
+    )
+    tokenized_resumes.append(tokenized_resume)
+
+# Create dataset class
 class BertDataset(Dataset):
-    def __init__(self, input_examples):
-        self.input_examples = input_examples
+    def __init__(self, tokenized_resumes, labels):
+        self.tokenized_resumes = tokenized_resumes
+        self.labels = labels
 
     def __len__(self):
-        return len(self.input_examples)
+        return len(self.tokenized_resumes)
 
     def __getitem__(self, idx):
-        input_example = self.input_examples[idx]
-        input_ids = input_example['input_ids']
-        attention_mask = [1] * len(input_ids)
-        padding_length = 512 - len(input_ids)
-        if padding_length > 0:
-            attention_mask += [0] * padding_length
-        input_ids += [0] * padding_length
-
-        label = input_example['labels']
+        tokenized_resume = self.tokenized_resumes[idx]
+        label = self.labels[idx]
         return {
-            'input_ids': torch.tensor(input_ids),
-            'attention_mask': torch.tensor(attention_mask),
-            'labels': label.unsqueeze(0)
+            'input_ids': tokenized_resume['input_ids'].flatten(),
+            'attention_mask': tokenized_resume['attention_mask'].flatten(),
+            'labels': torch.tensor(label)
         }
 
-# Create an instance of the custom dataset class
-dataset = BertDataset(input_examples)
+# Create dataset and data loader
+labels = [0.5, 0.8, 1, 1, 0.3, 0.1, 0.9, 0.3, 1, 0.1, 0.7, 1, 0.5]
 
-# Create a data loader from the dataset
+dataset = BertDataset(tokenized_resumes, labels)
 batch_size = 32
 data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
-# Define a BERT-based model for sequence classification
-model = BertForSequenceClassification.from_pretrained('bert-base-uncased', output_attentions=False, output_hidden_states=False)
+# Define model and optimizer
+model = BertForSequenceClassification.from_pretrained('bert-base-uncased', num_labels=1)
+optimizer = AdamW(model.parameters(), lr=1e-5)
 
-# Define the optimizer and loss function
-optimizer = AdamW(model.parameters(), lr=1e-5, no_deprecation_warning=True)
-# loss_fn = torch.nn.MSELoss()
-loss_fn = torch.nn.BCEWithLogitsLoss()
-
-# Train the model
+# Train model
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model.to(device)
-
-for epoch in range(5):  # Train for 5 epochs
+for epoch in range(5):
     model.train()
     total_loss = 0
     for batch in data_loader:
@@ -109,13 +79,8 @@ for epoch in range(5):  # Train for 5 epochs
 
         optimizer.zero_grad()
 
-        # outputs = model(input_ids, attention_mask=attention_mask, labels=labels)
-        # loss = loss_fn(outputs, labels)
-
         outputs = model(input_ids, attention_mask=attention_mask)
-
-        # remove the extra dimension from the output tensor
-        loss = loss_fn(outputs.logits.squeeze(),  labels.squeeze())
+        loss = torch.nn.MSELoss()(outputs.logits.squeeze(), labels.squeeze())
 
         loss.backward()
         optimizer.step()
@@ -125,8 +90,5 @@ for epoch in range(5):  # Train for 5 epochs
     print(f'Epoch {epoch+1}, Loss: {total_loss / len(data_loader)}')
 
     model.eval()
-# save the trained mode
+# Save trained model
 torch.save(model.state_dict(), 'trained_model.pt')
-
-torch.save(model.classifier.weight, 'classifier_weight.pt')
-torch.save(model.classifier.bias, 'classifier_bias.pt')

@@ -35,7 +35,7 @@ model.to(device)
 model.eval()
 
 # prepare the input data
-with open('data/first_question4_train.txt', 'r', encoding='utf-8') as f:
+with open('data/first_question5_train.txt', 'r', encoding='utf-8') as f:
     text = f.read()
 
 # Load the tokenizer
